@@ -152,22 +152,40 @@
            finally return retval))
 
 (defun go-eldoc--invoke-autocomplete ()
-  (let ((temp-buffer (get-buffer-create "*go-eldoc*"))
-        (gocode-args (append go-eldoc-gocode-args
-                             (list "-f=emacs"
-                                   "autocomplete"
-                                   (or (buffer-file-name) "")
-                                   (concat "c" (int-to-string (- (point) 1)))))))
+  (let* ((code-buffer (current-buffer))
+         (temp-buffer (get-buffer-create "*go-eldoc*"))
+         (filename (or (buffer-file-name) ""))
+         (remotep (file-remote-p filename))
+         (gocode-args (append go-eldoc-gocode-args
+                              (list "-f=emacs"
+                                    "autocomplete"
+                                    (file-local-name filename)
+                                    (concat "c" (int-to-string (- (point) 1)))))))
     (unwind-protect
         (progn
-          (apply #'call-process-region
-                 (point-min)
-                 (point-max)
-                 go-eldoc-gocode
-                 nil
-                 temp-buffer
-                 nil
-                 gocode-args)
+          (if remotep
+              (let ((tmpfile (make-temp-file "gocode"))
+                    (tramp-verbose -1))
+                (unwind-protect
+                    (progn
+                      (with-temp-file tmpfile
+                        (insert-buffer code-buffer))
+                      (with-current-buffer code-buffer
+                        (apply #'process-file
+                               go-eldoc-gocode
+                               tmpfile
+                               temp-buffer
+                               nil
+                               gocode-args)))
+                  (delete-file tmpfile)))
+            (apply #'call-process-region
+                   (point-min)
+                   (point-max)
+                   go-eldoc-gocode
+                   nil
+                   temp-buffer
+                   nil
+                   gocode-args))
           (with-current-buffer temp-buffer
             (buffer-string)))
       (kill-buffer temp-buffer))))
